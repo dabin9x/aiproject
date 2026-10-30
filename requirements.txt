@@ -1,4 +1,551 @@
-streamlit
-folium
-streamlit-folium
-pandas
+import streamlit as st
+import folium
+import pandas as pd
+from streamlit_folium import st_folium
+from urllib.parse import quote_plus
+
+# ==========================================
+# 1. 페이지 설정
+# ==========================================
+st.set_page_config(
+    page_title="Seoul 2-Day Travel Planner",
+    page_icon="🗺️",
+    layout="wide"
+)
+
+st.title("🗺️ Seoul 2-Day Travel Planner")
+st.write(
+    "Explore 10 famous attractions in Seoul in two days, "
+    "with recommended restaurants and hotels."
+)
+
+st.info(
+    "Travel schedule: 9:00 AM – 7:00 PM each day | "
+    "Accommodation: 1 night"
+)
+
+
+# ==========================================
+# 2. 관광지 데이터
+# ==========================================
+places = [
+    {
+        "name": "Gyeongbokgung Palace",
+        "korean": "경복궁",
+        "lat": 37.5796,
+        "lon": 126.9770,
+        "day": 1,
+        "description": "Seoul's most famous royal palace."
+    },
+    {
+        "name": "Bukchon Hanok Village",
+        "korean": "북촌한옥마을",
+        "lat": 37.5826,
+        "lon": 126.9830,
+        "day": 1,
+        "description": "Traditional Korean houses and scenic alleys."
+    },
+    {
+        "name": "Changdeokgung Palace",
+        "korean": "창덕궁",
+        "lat": 37.5794,
+        "lon": 126.9910,
+        "day": 1,
+        "description": "A UNESCO World Heritage royal palace."
+    },
+    {
+        "name": "Insadong",
+        "korean": "인사동",
+        "lat": 37.5743,
+        "lon": 126.9857,
+        "day": 1,
+        "description": "Traditional crafts, souvenirs, and tea houses."
+    },
+    {
+        "name": "Gwangjang Market",
+        "korean": "광장시장",
+        "lat": 37.5701,
+        "lon": 126.9997,
+        "day": 1,
+        "description": "A traditional market famous for Korean food."
+    },
+    {
+        "name": "Cheonggyecheon Stream",
+        "korean": "청계천",
+        "lat": 37.5692,
+        "lon": 126.9788,
+        "day": 1,
+        "description": "A relaxing stream in central Seoul."
+    },
+    {
+        "name": "Dongdaemun Design Plaza",
+        "korean": "동대문디자인플라자",
+        "lat": 37.5671,
+        "lon": 127.0095,
+        "day": 2,
+        "description": "A landmark known for futuristic architecture."
+    },
+    {
+        "name": "Myeongdong",
+        "korean": "명동",
+        "lat": 37.5636,
+        "lon": 126.9869,
+        "day": 2,
+        "description": "A popular shopping and street food district."
+    },
+    {
+        "name": "N Seoul Tower",
+        "korean": "N서울타워",
+        "lat": 37.5512,
+        "lon": 126.9882,
+        "day": 2,
+        "description": "A famous observation tower on Namsan Mountain."
+    },
+    {
+        "name": "Hongdae",
+        "korean": "홍대",
+        "lat": 37.5563,
+        "lon": 126.9236,
+        "day": 2,
+        "description": "A lively neighborhood with music, art, and shopping."
+    }
+]
+
+
+# ==========================================
+# 3. 관광지 검색
+# ==========================================
+st.sidebar.header("🔎 Search Attractions")
+
+search = st.sidebar.text_input(
+    "Search in English or Korean",
+    placeholder="e.g. Gyeongbokgung"
+).strip().lower()
+
+filtered_places = [
+    place for place in places
+    if search == ""
+    or search in place["name"].lower()
+    or search in place["korean"].lower()
+]
+
+st.metric("Tourist Attractions", len(filtered_places))
+
+
+# ==========================================
+# 4. 지도 생성
+# ==========================================
+st.subheader("📍 Interactive Seoul Tourist Map")
+
+if filtered_places:
+    tourist_map = folium.Map(
+        location=[37.5665, 126.9780],
+        zoom_start=12,
+        tiles="OpenStreetMap"
+    )
+
+    # 날짜별 색상
+    day_colors = {
+        1: "red",
+        2: "blue"
+    }
+
+    # 날짜별 이동 경로
+    for day in [1, 2]:
+        day_places = [
+            place for place in places
+            if place["day"] == day
+            and place in filtered_places
+        ]
+
+        if len(day_places) > 1:
+            folium.PolyLine(
+                locations=[
+                    [place["lat"], place["lon"]]
+                    for place in day_places
+                ],
+                color=day_colors[day],
+                weight=4,
+                opacity=0.7,
+                tooltip=f"Day {day} Route"
+            ).add_to(tourist_map)
+
+    # 관광지 마커
+    for place in filtered_places:
+        map_url = (
+            "https://www.google.com/maps/search/?api=1&query="
+            f"{place['lat']},{place['lon']}"
+        )
+
+        popup_html = f"""
+        <div style="width:230px">
+            <h4>{place['name']}</h4>
+            <p>{place['korean']}</p>
+            <p>{place['description']}</p>
+            <p>Day {place['day']}</p>
+            <a href="{map_url}" target="_blank">
+                Open in Google Maps
+            </a>
+        </div>
+        """
+
+        folium.Marker(
+            location=[place["lat"], place["lon"]],
+            tooltip=place["name"],
+            popup=folium.Popup(popup_html, max_width=300),
+            icon=folium.Icon(
+                color=day_colors[place["day"]],
+                icon="info-sign"
+            )
+        ).add_to(tourist_map)
+
+    # 지도 범례
+    legend_html = """
+    <div style="
+        position: fixed;
+        bottom: 25px;
+        left: 25px;
+        z-index: 9999;
+        background-color: white;
+        padding: 10px;
+        border: 1px solid grey;
+        border-radius: 5px;
+        font-size: 14px;">
+        <b>Route Legend</b><br>
+        <span style="color:red;">●</span> Day 1<br>
+        <span style="color:blue;">●</span> Day 2
+    </div>
+    """
+
+    tourist_map.get_root().html.add_child(
+        folium.Element(legend_html)
+    )
+
+    st_folium(
+        tourist_map,
+        use_container_width=True,
+        height=550,
+        returned_objects=[]
+    )
+
+else:
+    st.warning("No attractions found. Try another search.")
+
+
+# ==========================================
+# 5. 1박 2일 일정표
+# ==========================================
+st.divider()
+st.header("📅 1 Night, 2 Days Travel Schedule")
+st.caption(
+    "Times are suggested estimates. Walking, subway transfers, "
+    "queues, and opening hours may affect the actual schedule."
+)
+
+schedule = [
+    {
+        "Day": "Day 1",
+        "Time": "09:00–10:30",
+        "Place": "Gyeongbokgung Palace (경복궁)",
+        "Plan": "Explore the royal palace and take photos.",
+        "Transport": "Start at Gyeongbokgung Station"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "10:40–11:30",
+        "Place": "Bukchon Hanok Village (북촌한옥마을)",
+        "Plan": "Walk through traditional hanok streets.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "11:40–12:30",
+        "Place": "Insadong (인사동)",
+        "Plan": "Lunch and explore traditional shops.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "12:40–14:00",
+        "Place": "Changdeokgung Palace (창덕궁)",
+        "Plan": "Visit the palace grounds.",
+        "Transport": "Walk or short local transfer"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "14:00–15:00",
+        "Place": "Rest and café break",
+        "Plan": "Take a break around Insadong or Jongno.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "15:15–16:15",
+        "Place": "Gwangjang Market (광장시장)",
+        "Plan": "Try Korean market snacks.",
+        "Transport": "Walk or subway"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "16:30–17:30",
+        "Place": "Cheonggyecheon Stream (청계천)",
+        "Plan": "Enjoy a relaxing walk along the stream.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 1",
+        "Time": "17:30–19:00",
+        "Place": "Dinner and hotel check-in",
+        "Plan": "Have dinner and rest at your hotel.",
+        "Transport": "Subway, bus, or walk"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "09:00–10:30",
+        "Place": "Dongdaemun Design Plaza (DDP)",
+        "Plan": "Explore the architecture and public spaces.",
+        "Transport": "Dongdaemun History & Culture Park Station"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "10:30–11:15",
+        "Place": "Dongdaemun area",
+        "Plan": "Walk around and take a short break.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "11:30–12:30",
+        "Place": "Myeongdong (명동)",
+        "Plan": "Lunch and explore the shopping streets.",
+        "Transport": "Subway or taxi"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "12:30–13:30",
+        "Place": "Myeongdong Shopping Street",
+        "Plan": "Shop for souvenirs and Korean beauty products.",
+        "Transport": "Walk"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "13:30–15:30",
+        "Place": "N Seoul Tower (N서울타워)",
+        "Plan": "Visit Namsan and enjoy panoramic city views.",
+        "Transport": "Bus, cable car, or walking route"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "15:30–16:30",
+        "Place": "Travel to Hongdae",
+        "Plan": "Take the subway and enjoy a short break.",
+        "Transport": "Subway"
+    },
+    {
+        "Day": "Day 2",
+        "Time": "16:30–19:00",
+        "Place": "Hongdae (홍대)",
+        "Plan": "Explore shops, street art, and cafés; have dinner.",
+        "Transport": "Hongik University Station"
+    }
+]
+
+schedule_df = pd.DataFrame(schedule)
+
+st.dataframe(
+    schedule_df,
+    use_container_width=True,
+    hide_index=True,
+    height=570
+)
+
+
+# ==========================================
+# 6. 식당 추천
+# ==========================================
+st.divider()
+st.header("🍽️ Recommended Restaurants")
+st.write(
+    "Restaurant links open Google Maps so you can check directions, "
+    "current opening hours, and recent reviews."
+)
+
+
+def google_maps_search(query):
+    return (
+        "https://www.google.com/maps/search/?api=1&query="
+        + quote_plus(query)
+    )
+
+
+restaurants = [
+    {
+        "Day": "Day 1",
+        "Meal": "Breakfast",
+        "Restaurant": "Seochon cafés and bakeries",
+        "Recommended Menu": "Coffee, toast, bakery items",
+        "Reason": "Convenient for starting near Gyeongbokgung.",
+        "Link": google_maps_search(
+            "breakfast cafe bakery Seochon Seoul"
+        )
+    },
+    {
+        "Day": "Day 1",
+        "Meal": "Lunch",
+        "Restaurant": "Insadong Korean restaurants",
+        "Recommended Menu": "Bibimbap, bulgogi, Korean set meals",
+        "Reason": "Fits the route between Bukchon and Changdeokgung.",
+        "Link": google_maps_search(
+            "Korean restaurant Insadong Seoul"
+        )
+    },
+    {
+        "Day": "Day 1",
+        "Meal": "Dinner",
+        "Restaurant": "Gwangjang Market food stalls",
+        "Recommended Menu": "Bindaetteok, gimbap, noodles",
+        "Reason": "A convenient place to sample Korean market food.",
+        "Link": google_maps_search(
+            "Gwangjang Market food stalls Seoul"
+        )
+    },
+    {
+        "Day": "Day 2",
+        "Meal": "Breakfast",
+        "Restaurant": "Dongdaemun breakfast cafés",
+        "Recommended Menu": "Toast, sandwiches, coffee",
+        "Reason": "Convenient before exploring DDP.",
+        "Link": google_maps_search(
+            "breakfast cafe Dongdaemun Design Plaza Seoul"
+        )
+    },
+    {
+        "Day": "Day 2",
+        "Meal": "Lunch",
+        "Restaurant": "Myeongdong Kyoja",
+        "Recommended Menu": "Kalguksu and dumplings",
+        "Reason": "A well-known noodle restaurant in Myeongdong.",
+        "Link": google_maps_search(
+            "Myeongdong Kyoja Seoul"
+        )
+    },
+    {
+        "Day": "Day 2",
+        "Meal": "Dinner",
+        "Restaurant": "Yookji Hongdae",
+        "Recommended Menu": "Korean barbecue",
+        "Reason": "A dinner option near the final stop in Hongdae.",
+        "Link": google_maps_search(
+            "Yookji Hongdae Korean BBQ Seoul"
+        )
+    }
+]
+
+restaurant_df = pd.DataFrame(restaurants)
+
+st.dataframe(
+    restaurant_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Link": st.column_config.LinkColumn(
+            "Restaurant Map",
+            display_text="Open Map"
+        )
+    }
+)
+
+
+# ==========================================
+# 7. 호텔 추천
+# ==========================================
+st.divider()
+st.header("🏨 Recommended Hotels")
+st.write(
+    "Myeongdong and central Jung-gu are practical bases for this route. "
+    "Compare room prices, availability, and cancellation policies "
+    "before booking."
+)
+
+hotels = [
+    {
+        "Hotel": "L7 Myeongdong by LOTTE",
+        "Area": "Myeongdong",
+        "Best For": "Travelers who want shopping and convenient transport",
+        "Website": "https://www.lottehotel.com/myeongdong-l7",
+        "Map": google_maps_search(
+            "L7 Myeongdong by LOTTE Seoul"
+        )
+    },
+    {
+        "Hotel": "LOTTE City Hotel Myeongdong",
+        "Area": "Myeongdong / Euljiro",
+        "Best For": "A central base for sightseeing and shopping",
+        "Website": "https://www.lottehotel.com/myeongdong-city",
+        "Map": google_maps_search(
+            "LOTTE City Hotel Myeongdong Seoul"
+        )
+    },
+    {
+        "Hotel": "Hotel PJ Myeongdong",
+        "Area": "Jung-gu",
+        "Best For": "Travelers who want access to central Seoul attractions",
+        "Website": "https://www.hotelpj.co.kr/",
+        "Map": google_maps_search(
+            "Hotel PJ Myeongdong Seoul"
+        )
+    },
+    {
+        "Hotel": "Nine Tree by Parnas Seoul Insadong",
+        "Area": "Insadong / Jongno",
+        "Best For": "Travelers who prefer the traditional sightseeing area",
+        "Website": "https://www.ninetreehotels.com/",
+        "Map": google_maps_search(
+            "Nine Tree by Parnas Seoul Insadong"
+        )
+    }
+]
+
+hotel_df = pd.DataFrame(hotels)
+
+st.dataframe(
+    hotel_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Website": st.column_config.LinkColumn(
+            "Official Website",
+            display_text="Visit Website"
+        ),
+        "Map": st.column_config.LinkColumn(
+            "Hotel Map",
+            display_text="Open Map"
+        )
+    }
+)
+
+
+# ==========================================
+# 8. 여행 팁
+# ==========================================
+st.divider()
+st.header("💡 Travel Tips")
+
+st.markdown("""
+- **Palace closures:** Check the official opening schedule before your trip.
+  Gyeongbokgung Palace is normally closed on Tuesdays, and Changdeokgung
+  Palace is normally closed on Mondays.
+- **Bukchon:** Some residential streets have visitor-access restrictions.
+  Follow local signs and keep noise low.
+- **N Seoul Tower:** Allow extra time for the bus, cable car, or uphill walk.
+- **Transport:** Subway and walking are usually practical for this itinerary.
+- **Restaurants:** Check opening hours and waiting times on the day.
+- **Hotels:** Prices depend on the travel date and room type.
+- **Schedule:** This is a suggested itinerary; adjust it for your pace,
+  weather, and attraction opening hours.
+""")
+
+st.caption(
+    "Seoul 2-Day Travel Planner | "
+    "Tourist attractions, schedule, restaurants, and hotels"
+)
