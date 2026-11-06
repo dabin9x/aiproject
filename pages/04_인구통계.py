@@ -1,3 +1,73 @@
+import streamlit as st
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+from pathlib import Path
+
+# -----------------------------------------
+# 한글 폰트 자동 설정
+# -----------------------------------------
+def set_korean_font():
+
+    font_paths = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    ]
+
+    selected_font = None
+
+    for font_path in font_paths:
+        if Path(font_path).exists():
+            try:
+                fm.fontManager.addfont(font_path)
+                selected_font = fm.FontProperties(
+                    fname=font_path
+                ).get_name()
+                break
+            except Exception:
+                continue
+
+    if selected_font:
+        plt.rcParams["font.family"] = selected_font
+        plt.rcParams["axes.unicode_minus"] = False
+        return True
+
+    # 설치된 한글 폰트를 추가로 검색
+    font_directory = Path("/usr/share/fonts")
+
+    if font_directory.exists():
+        for font_path in font_directory.rglob("*"):
+            if font_path.suffix.lower() not in [".ttf", ".otf", ".ttc"]:
+                continue
+
+            if "nanum" in font_path.name.lower() or "notosanscjk" in font_path.name.lower():
+                try:
+                    fm.fontManager.addfont(str(font_path))
+                    selected_font = fm.FontProperties(
+                        fname=str(font_path)
+                    ).get_name()
+                    break
+                except Exception:
+                    continue
+
+    if selected_font:
+        plt.rcParams["font.family"] = selected_font
+        plt.rcParams["axes.unicode_minus"] = False
+        return True
+
+    plt.rcParams["axes.unicode_minus"] = False
+    return False
+
+
+KOREAN_FONT_OK = set_korean_font()
+
+if not KOREAN_FONT_OK:
+    st.warning(
+        "한글 폰트를 찾을 수 없습니다. "
+        "packages.txt에 fonts-nanum이 있는지 확인해 주세요."
+    )
 import re
 from pathlib import Path
 
