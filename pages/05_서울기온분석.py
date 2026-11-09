@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ==========================================
-# 1. 페이지 기본 설정
+# 1. 페이지 설정
 # ==========================================
 
 st.set_page_config(
@@ -15,56 +15,54 @@ st.set_page_config(
 )
 
 st.title("🌡️ 서울 월별 기온 분석")
-st.markdown("### 원하는 월을 선택하여 연도별 최고기온과 최저기온을 비교해 보세요!")
+st.markdown(
+    "사용자가 월을 선택하면 전체 연도의 "
+    "최고기온과 최저기온을 비교합니다."
+)
 
 st.divider()
 
 # ==========================================
-# 2. CSV 파일 불러오기
+# 2. 상위 폴더의 CSV 파일 경로
 # ==========================================
 
-file_name = "extremum_20261109105046 (1).csv"
-file_path = Path(__file__).parent / file_name
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-uploaded_file = st.file_uploader(
-    "CSV 데이터 파일 업로드",
-    type=["csv"]
-)
+file_name = "extremum_20261109105046 (1).csv"
+
+file_path = BASE_DIR / file_name
+
+# ==========================================
+# 3. CSV 파일 읽기
+# ==========================================
 
 try:
-    if uploaded_file is not None:
-        df = pd.read_csv(
-            uploaded_file,
-            encoding="cp949",
-            skiprows=11,
-            skipinitialspace=True
-        )
-    elif file_path.exists():
-        df = pd.read_csv(
-            file_path,
-            encoding="cp949",
-            skiprows=11,
-            skipinitialspace=True
-        )
-    else:
-        st.error("CSV 파일을 찾을 수 없습니다. 파일을 업로드해 주세요.")
+    if not file_path.exists():
+        st.error("CSV 파일을 찾을 수 없습니다.")
+        st.write("찾는 경로:", str(file_path))
         st.stop()
 
+    df = pd.read_csv(
+        file_path,
+        encoding="cp949",
+        skiprows=11,
+        skipinitialspace=True
+    )
+
 except UnicodeDecodeError:
-    st.error("파일 인코딩을 확인해 주세요. 원본 파일은 CP949 형식이어야 합니다.")
+    st.error("CSV 파일의 인코딩을 확인해 주세요.")
     st.stop()
 
 except Exception as e:
-    st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+    st.error(f"데이터 읽기 오류: {e}")
     st.stop()
 
 # ==========================================
-# 3. 데이터 전처리
+# 4. 데이터 전처리
 # ==========================================
 
-df.columns = df.columns.str.strip()
+df.columns = df.columns.astype(str).str.strip()
 
-# 필요한 컬럼 확인
 required_columns = [
     "일시",
     "최고기온(℃)",
@@ -77,7 +75,10 @@ missing_columns = [
 ]
 
 if missing_columns:
-    st.error(f"필요한 컬럼이 없습니다: {missing_columns}")
+    st.error(
+        f"CSV에 필요한 컬럼이 없습니다: {missing_columns}"
+    )
+    st.write("실제 컬럼명:", df.columns.tolist())
     st.stop()
 
 # 날짜 변환
@@ -102,7 +103,7 @@ df["최저기온(℃)"] = pd.to_numeric(
 df["연도"] = df["일시"].dt.year
 df["월"] = df["일시"].dt.month
 
-# 결측치 제거
+# 필요한 데이터 결측치 제거
 df = df.dropna(
     subset=[
         "연도",
@@ -116,25 +117,26 @@ df["연도"] = df["연도"].astype(int)
 df["월"] = df["월"].astype(int)
 
 # ==========================================
-# 4. 월 선택
+# 5. 월 선택
 # ==========================================
 
 st.subheader("📅 분석할 월 선택")
 
 selected_month = st.selectbox(
-    "월을 선택하세요",
+    "월을 선택하세요.",
     options=list(range(1, 13)),
-    format_func=lambda x: f"{x}월",
-    index=0
+    format_func=lambda x: f"{x}월"
 )
 
 # ==========================================
-# 5. 선택한 월의 데이터 추출
+# 6. 선택 월 데이터 추출
 # ==========================================
 
-month_df = df[df["월"] == selected_month].copy()
+month_df = df[
+    df["월"] == selected_month
+].copy()
 
-# 연도별 최고기온과 최저기온
+# 연도별 최고기온 및 최저기온
 chart_df = (
     month_df.groupby("연도")
     .agg({
@@ -146,14 +148,16 @@ chart_df = (
 )
 
 if chart_df.empty:
-    st.warning("선택한 월의 데이터가 없습니다.")
+    st.warning("선택한 월에 해당하는 데이터가 없습니다.")
     st.stop()
 
 # ==========================================
-# 6. 요약 정보
+# 7. 요약 통계
 # ==========================================
 
-st.subheader(f"📊 {selected_month}월 기온 분석 결과")
+st.subheader(
+    f"📊 {selected_month}월 기온 분석 결과"
+)
 
 col1, col2, col3 = st.columns(3)
 
@@ -188,14 +192,14 @@ with col3:
 st.divider()
 
 # ==========================================
-# 7. 그래프 작성
+# 8. 그래프 작성
 # ==========================================
 
 st.subheader("📈 월별 기온 분석")
 
 fig = go.Figure()
 
-# 최고기온 그래프 - 연두색
+# 최고기온 - 연두색
 fig.add_trace(
     go.Scatter(
         x=chart_df["연도"],
@@ -207,8 +211,8 @@ fig.add_trace(
             width=3
         ),
         marker=dict(
-            size=7,
-            color="#90EE90"
+            color="#90EE90",
+            size=7
         ),
         hovertemplate=(
             "%{x}년<br>"
@@ -218,7 +222,7 @@ fig.add_trace(
     )
 )
 
-# 최저기온 그래프 - 하늘색
+# 최저기온 - 하늘색
 fig.add_trace(
     go.Scatter(
         x=chart_df["연도"],
@@ -230,8 +234,8 @@ fig.add_trace(
             width=3
         ),
         marker=dict(
-            size=7,
-            color="#87CEEB"
+            color="#87CEEB",
+            size=7
         ),
         hovertemplate=(
             "%{x}년<br>"
@@ -241,16 +245,14 @@ fig.add_trace(
     )
 )
 
-# 그래프 레이아웃
+# 그래프 제목과 축 설정
 fig.update_layout(
-    title={
-        "text": f"{selected_month}월 월별 기온 분석",
-        "x": 0.5,
-        "xanchor": "center",
-        "font": {
-            "size": 24
-        }
-    },
+    title=dict(
+        text="월별 기온 분석",
+        x=0.5,
+        xanchor="center",
+        font=dict(size=25)
+    ),
 
     xaxis=dict(
         title="연도",
@@ -274,9 +276,7 @@ fig.update_layout(
     ),
 
     hovermode="x unified",
-
     template="plotly_white",
-
     height=600
 )
 
@@ -287,18 +287,18 @@ st.plotly_chart(
 )
 
 # ==========================================
-# 8. 연도별 데이터 표
+# 9. 연도별 상세 데이터
 # ==========================================
 
-with st.expander("📋 연도별 상세 기온 데이터 보기"):
+with st.expander("📋 연도별 상세 기온 데이터 확인"):
 
-    display_df = chart_df.copy()
-
-    display_df.columns = [
-        "연도",
-        "최고기온(℃)",
-        "최저기온(℃)"
-    ]
+    display_df = chart_df.rename(
+        columns={
+            "연도": "연도",
+            "최고기온(℃)": "최고기온(℃)",
+            "최저기온(℃)": "최저기온(℃)"
+        }
+    )
 
     st.dataframe(
         display_df,
@@ -307,7 +307,7 @@ with st.expander("📋 연도별 상세 기온 데이터 보기"):
     )
 
 # ==========================================
-# 9. 데이터 다운로드
+# 10. CSV 다운로드
 # ==========================================
 
 csv_data = chart_df.to_csv(
@@ -316,23 +316,26 @@ csv_data = chart_df.to_csv(
 )
 
 st.download_button(
-    label="📥 분석 데이터 CSV 다운로드",
+    label="📥 분석 데이터 다운로드",
     data=csv_data.encode("utf-8-sig"),
     file_name=f"서울_{selected_month}월_기온분석.csv",
     mime="text/csv"
 )
 
 # ==========================================
-# 10. 안내 문구
+# 11. 하단 안내
 # ==========================================
 
 st.divider()
 
 st.caption(
-    "자료: 기상청 기상자료 | "
+    "자료: 기상청 기상자료"
+)
+
+st.caption(
     "분석 기준: 선택한 월의 연도별 월간 최고기온 및 최저기온"
 )
 
 st.caption(
-    "※ 자료가 존재하는 연도만 그래프에 표시됩니다."
+    "※ 실제 데이터가 존재하는 연도만 그래프에 표시됩니다."
 )
