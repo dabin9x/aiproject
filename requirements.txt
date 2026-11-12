@@ -3,3 +3,5 @@ folium
 pandas
 plotly 
 matplotlib
+numpy
+scikit-learn
