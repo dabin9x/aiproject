@@ -4,63 +4,65 @@ import re
 
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 import plotly.graph_objects as go
 
 
-# ==========================================
-# 1. 페이지 설정
-# ==========================================
+# =====================================================
+# 1. 페이지 기본 설정
+# =====================================================
 
 st.set_page_config(
-    page_title="아파트 전월세 전환율 분석",
+    page_title="아파트 전월세 전환율 종합 대시보드",
     page_icon="🏠",
     layout="wide"
 )
 
-st.title("🏠 지역별 아파트 전월세 전환율 분석")
-st.caption("지역과 연도를 선택하고 선형회귀로 다음 달 전환율을 예측합니다.")
+st.title("🏠 전국 아파트 전월세 전환율 종합 대시보드")
+st.caption(
+    "지역별 아파트 전월세 전환율을 분석하고 "
+    "전국의 부동산 시장 흐름을 살펴보세요."
+)
 
 
-# ==========================================
-# 2. CSV 파일 위치 확인
-# ==========================================
-
-# 현재 파일은 pages 폴더에 있습니다.
-# CSV 파일은 프로젝트 최상위 폴더에 있습니다.
+# =====================================================
+# 2. CSV 파일 위치
+# =====================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-CSV_FILE = BASE_DIR / "지역별 전월세 전환율_아파트.csv"
+FILE_LIST = [
+    BASE_DIR / "지역별 전월세 전환율_아파트.csv",
+    BASE_DIR / "temperature.csv"
+]
 
-# temperature.csv라는 이름을 사용하는 경우도 지원
-if not CSV_FILE.exists():
-    CSV_FILE = BASE_DIR / "temperature.csv"
+CSV_FILE = None
 
-if not CSV_FILE.exists():
+for file in FILE_LIST:
+    if file.exists():
+        CSV_FILE = file
+        break
+
+if CSV_FILE is None:
     st.error("CSV 파일을 찾을 수 없습니다.")
-    st.write("현재 검색한 폴더:", str(BASE_DIR))
-    st.write("필요한 파일명:")
-    st.code(
-        "지역별 전월세 전환율_아파트.csv\n"
-        "또는\n"
-        "temperature.csv"
-    )
+    st.write("현재 검색 위치:", str(BASE_DIR))
+    st.write("프로젝트 최상위 폴더에 CSV 파일을 넣어주세요.")
     st.stop()
 
 
-# ==========================================
-# 3. CSV 데이터 불러오기
-# ==========================================
+# =====================================================
+# 3. 데이터 불러오기
+# =====================================================
 
 @st.cache_data
 def load_data(file_path):
 
-    df = None
+    raw = None
 
     for encoding in ["cp949", "euc-kr", "utf-8-sig", "utf-8"]:
 
         try:
-            df = pd.read_csv(
+            raw = pd.read_csv(
                 file_path,
                 encoding=encoding,
                 dtype=str
@@ -70,24 +72,27 @@ def load_data(file_path):
         except UnicodeDecodeError:
             continue
 
-    if df is None:
-        raise ValueError("CSV 한글 인코딩을 읽을 수 없습니다.")
+    if raw is None:
+        raise ValueError("CSV 파일의 한글 인코딩을 확인해 주세요.")
 
-    df.columns = [str(c).strip() for c in df.columns]
+    raw.columns = [str(c).strip() for c in raw.columns]
 
-    region_columns = ["지역", "지역.1", "지역.2"]
+    region_columns = [
+        "지역",
+        "지역.1",
+        "지역.2"
+    ]
 
     for col in region_columns:
-        if col not in df.columns:
+
+        if col not in raw.columns:
             raise ValueError(
-                f"CSV에서 {col} 열을 찾을 수 없습니다. "
-                "CSV의 열 이름을 확인해 주세요."
+                f"CSV에 {col} 열이 없습니다."
             )
 
-    # 월별 데이터 열 찾기
     month_columns = []
 
-    for col in df.columns:
+    for col in raw.columns:
 
         match = re.fullmatch(
             r"(\d{4})년\s*(\d{1,2})월",
@@ -98,16 +103,13 @@ def load_data(file_path):
             month_columns.append(col)
 
     if not month_columns:
-        raise ValueError(
-            "월별 데이터 열을 찾을 수 없습니다. "
-            "예: 2026년 1월"
-        )
+        raise ValueError("월별 데이터 열을 찾지 못했습니다.")
 
     records = []
 
-    for _, row in df.iterrows():
+    for _, row in raw.iterrows():
 
-        region_parts = []
+        parts = []
 
         for col in region_columns:
 
@@ -118,13 +120,14 @@ def load_data(file_path):
                 and value.lower() != "nan"
                 and value != "-"
             ):
-                if not region_parts or region_parts[-1] != value:
-                    region_parts.append(value)
 
-        if not region_parts:
+                if not parts or parts[-1] != value:
+                    parts.append(value)
+
+        if not parts:
             continue
 
-        region_name = " > ".join(region_parts)
+        region = " > ".join(parts)
 
         for month_col in month_columns:
 
@@ -136,17 +139,17 @@ def load_data(file_path):
             year = int(match.group(1))
             month = int(match.group(2))
 
-            value = str(row[month_col]).replace(",", "").strip()
-
             value = pd.to_numeric(
-                value,
+                str(row[month_col]).replace(",", "").strip(),
                 errors="coerce"
             )
 
             if pd.notna(value):
 
                 records.append({
-                    "지역": region_name,
+                    "지역": region,
+                    "지역명": parts[-1],
+                    "지역단계": len(parts),
                     "연도": year,
                     "월": month,
                     "날짜": pd.Timestamp(
@@ -157,12 +160,12 @@ def load_data(file_path):
                     "전환율": float(value)
                 })
 
-    result = pd.DataFrame(records)
+    df = pd.DataFrame(records)
 
-    if result.empty:
-        raise ValueError("분석할 수 있는 전환율 데이터가 없습니다.")
+    if df.empty:
+        raise ValueError("유효한 전환율 데이터가 없습니다.")
 
-    return result.sort_values(
+    return df.sort_values(
         ["지역", "날짜"]
     ).reset_index(drop=True)
 
@@ -173,117 +176,332 @@ try:
 
 except Exception as e:
 
-    st.error("데이터를 불러오는 중 오류가 발생했습니다.")
+    st.error("데이터 처리 중 오류가 발생했습니다.")
     st.exception(e)
     st.stop()
 
 
-# ==========================================
-# 4. 지역 및 연도 선택
-# ==========================================
+# =====================================================
+# 4. 사이드바 설정
+# =====================================================
 
-regions = sorted(data["지역"].unique())
+st.sidebar.title("⚙️ 분석 설정")
 
 years = sorted(data["연도"].unique())
 
-col1, col2 = st.columns(2)
-
-with col1:
-
-    selected_region = st.selectbox(
-        "📍 지역 선택",
-        regions
-    )
-
-with col2:
-
-    selected_year = st.selectbox(
-        "📅 연도 선택",
-        years,
-        index=len(years) - 1,
-        format_func=lambda x: f"{x}년"
-    )
-
-
-# ==========================================
-# 5. 선택한 지역과 연도 데이터
-# ==========================================
-
-selected = data[
-    (data["지역"] == selected_region)
-    & (data["연도"] == selected_year)
-].copy()
-
-selected = selected.sort_values("날짜")
-
-st.divider()
-
-st.subheader(
-    f"📊 {selected_region} / {selected_year}년 전월세 전환율"
+selected_year = st.sidebar.selectbox(
+    "📅 분석 연도",
+    years,
+    index=len(years) - 1
 )
 
-if selected.empty:
+months = sorted(
+    data.loc[
+        data["연도"] == selected_year,
+        "월"
+    ].unique()
+)
 
-    st.warning("선택한 조건에 데이터가 없습니다.")
+month_options = ["연평균"] + [
+    f"{m}월" for m in months
+]
+
+selected_month = st.sidebar.selectbox(
+    "🗓️ 분석 월",
+    month_options
+)
+
+available_levels = sorted(
+    data["지역단계"].unique()
+)
+
+default_level = max(available_levels)
+
+selected_level = st.sidebar.selectbox(
+    "📍 지역 분석 단계",
+    available_levels,
+    index=available_levels.index(default_level),
+    format_func=lambda x: {
+        1: "1단계 지역",
+        2: "2단계 지역",
+        3: "3단계 지역"
+    }.get(x, f"{x}단계 지역")
+)
+
+
+# =====================================================
+# 5. 선택 조건에 따른 데이터 만들기
+# =====================================================
+
+year_data = data[
+    data["연도"] == selected_year
+].copy()
+
+if selected_month == "연평균":
+
+    analysis_data = (
+        year_data.groupby(
+            ["지역", "지역명", "지역단계"],
+            as_index=False
+        )["전환율"]
+        .mean()
+    )
+
+    analysis_label = f"{selected_year}년 연평균"
+
+else:
+
+    month_number = int(
+        selected_month.replace("월", "")
+    )
+
+    analysis_data = year_data[
+        year_data["월"] == month_number
+    ].copy()
+
+    analysis_label = (
+        f"{selected_year}년 {month_number}월"
+    )
+
+
+# 같은 행정 단계의 지역만 비교
+level_data = analysis_data[
+    analysis_data["지역단계"] == selected_level
+].copy()
+
+# 전국 및 합계 성격의 행은 지역 순위에서 제외
+level_data = level_data[
+    ~level_data["지역명"].str.contains(
+        "전국|소계|합계",
+        na=False
+    )
+]
+
+if level_data.empty:
+    st.warning("선택한 조건에 해당하는 지역 데이터가 없습니다.")
     st.stop()
 
 
-# ==========================================
-# 6. 선형회귀 계산 함수
-# ==========================================
+# =====================================================
+# 6. 종합 대시보드
+# =====================================================
 
-def calculate_regression(x, y):
+st.divider()
 
-    n = len(x)
+st.subheader("📊 전국 전월세 전환율 핵심 지표")
 
-    mean_x = sum(x) / n
-    mean_y = sum(y) / n
-
-    numerator = sum(
-        (x[i] - mean_x) * (y[i] - mean_y)
-        for i in range(n)
-    )
-
-    denominator = sum(
-        (x[i] - mean_x) ** 2
-        for i in range(n)
-    )
-
-    if denominator == 0:
-        return None
-
-    slope = numerator / denominator
-
-    intercept = mean_y - slope * mean_x
-
-    return slope, intercept
-
-
-# ==========================================
-# 7. 과거 데이터로 학습
-# ==========================================
-
-# 선택한 연도의 마지막 달까지의 과거 자료를 활용합니다.
-
-history = data[
-    (data["지역"] == selected_region)
-    & (data["날짜"] <= selected["날짜"].max())
-].copy()
-
-history = history.sort_values("날짜")
-
-history["월순번"] = (
-    history["날짜"].dt.year * 12
-    + history["날짜"].dt.month
+st.write(
+    f"분석 기준: **{analysis_label}**"
 )
 
-fig = go.Figure()
+average_rate = level_data["전환율"].mean()
+maximum_rate = level_data["전환율"].max()
+minimum_rate = level_data["전환율"].min()
 
-# 실제 데이터
-fig.add_trace(
+max_region = level_data.loc[
+    level_data["전환율"].idxmax(),
+    "지역명"
+]
+
+min_region = level_data.loc[
+    level_data["전환율"].idxmin(),
+    "지역명"
+]
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric(
+    "📌 지역 평균 전환율",
+    f"{average_rate:.2f}%"
+)
+
+col2.metric(
+    "🔺 최고 전환율",
+    f"{maximum_rate:.2f}%"
+)
+
+col3.metric(
+    "🔻 최저 전환율",
+    f"{minimum_rate:.2f}%"
+)
+
+col4.metric(
+    "📍 분석 지역 수",
+    f"{len(level_data)}개"
+)
+
+st.info(
+    "지역 평균은 선택한 행정 단계에 포함된 "
+    "지역별 전환율의 단순 평균입니다."
+)
+
+
+# =====================================================
+# 7. 최고 및 최저 지역
+# =====================================================
+
+st.divider()
+
+st.subheader("🏆 전환율 최고·최저 지역")
+
+left, right = st.columns(2)
+
+with left:
+
+    st.markdown("### 🔺 전환율이 가장 높은 지역")
+
+    st.metric(
+        max_region,
+        f"{maximum_rate:.2f}%"
+    )
+
+with right:
+
+    st.markdown("### 🔻 전환율이 가장 낮은 지역")
+
+    st.metric(
+        min_region,
+        f"{minimum_rate:.2f}%"
+    )
+
+
+# =====================================================
+# 8. 지역별 TOP 10
+# =====================================================
+
+st.divider()
+
+st.subheader("🥇 지역별 전환율 TOP 10")
+
+top10 = level_data.sort_values(
+    "전환율",
+    ascending=False
+).head(10).copy()
+
+fig_top = px.bar(
+    top10.sort_values("전환율"),
+    x="전환율",
+    y="지역명",
+    orientation="h",
+    text="전환율",
+    title=f"{analysis_label} 지역별 전환율 TOP 10",
+    labels={
+        "전환율": "전월세 전환율(%)",
+        "지역명": "지역"
+    }
+)
+
+fig_top.update_traces(
+    texttemplate="%{text:.2f}%",
+    textposition="outside"
+)
+
+fig_top.update_layout(
+    template="plotly_white",
+    height=480,
+    showlegend=False
+)
+
+st.plotly_chart(
+    fig_top,
+    use_container_width=True
+)
+
+
+# =====================================================
+# 9. 지역별 전환율 비교
+# =====================================================
+
+st.divider()
+
+st.subheader("📊 지역별 전환율 비교")
+
+all_regions = sorted(
+    level_data["지역"].unique()
+)
+
+default_regions = level_data.sort_values(
+    "전환율",
+    ascending=False
+)["지역"].head(min(5, len(level_data))).tolist()
+
+selected_regions = st.multiselect(
+    "비교할 지역을 선택하세요.",
+    options=all_regions,
+    default=default_regions,
+    format_func=lambda x: x.split(" > ")[-1]
+)
+
+if selected_regions:
+
+    compare_data = level_data[
+        level_data["지역"].isin(selected_regions)
+    ].copy()
+
+    compare_fig = px.bar(
+        compare_data.sort_values(
+            "전환율",
+            ascending=False
+        ),
+        x="지역명",
+        y="전환율",
+        text="전환율",
+        labels={
+            "지역명": "지역",
+            "전환율": "전월세 전환율(%)"
+        },
+        title="선택 지역 전환율 비교"
+    )
+
+    compare_fig.update_traces(
+        texttemplate="%{text:.2f}%",
+        textposition="outside"
+    )
+
+    compare_fig.update_layout(
+        template="plotly_white",
+        height=450,
+        showlegend=False
+    )
+
+    st.plotly_chart(
+        compare_fig,
+        use_container_width=True
+    )
+
+else:
+
+    st.warning("비교할 지역을 선택해 주세요.")
+
+
+# =====================================================
+# 10. 지역별 월간 변화
+# =====================================================
+
+st.divider()
+
+st.subheader("📈 선택 지역의 월별 전환율 변화")
+
+region_options = sorted(
+    year_data["지역"].unique()
+)
+
+selected_region = st.selectbox(
+    "월별 추이를 확인할 지역",
+    region_options,
+    format_func=lambda x: x.split(" > ")[-1]
+)
+
+trend_data = year_data[
+    year_data["지역"] == selected_region
+].sort_values("날짜")
+
+trend_fig = go.Figure()
+
+trend_fig.add_trace(
     go.Scatter(
-        x=selected["날짜"],
-        y=selected["전환율"],
+        x=trend_data["날짜"],
+        y=trend_data["전환율"],
         mode="lines+markers",
         name="실제 전환율",
         line=dict(width=3),
@@ -291,259 +509,217 @@ fig.add_trace(
     )
 )
 
-prediction = None
-next_date = None
-
-if len(history) >= 2:
-
-    x = history["월순번"].tolist()
-    y = history["전환율"].tolist()
-
-    result = calculate_regression(x, y)
-
-    if result is not None:
-
-        slope, intercept = result
-
-        # 다음 달 계산
-        last_date = history["날짜"].max()
-
-        next_date = last_date + pd.DateOffset(months=1)
-
-        next_x = next_date.year * 12 + next_date.month
-
-        prediction = slope * next_x + intercept
-
-        # 회귀 직선
-        first_x = (
-            selected["날짜"].min().year * 12
-            + selected["날짜"].min().month
-        )
-
-        line_x = list(range(first_x, next_x + 1))
-
-        line_dates = [
-            pd.Timestamp(
-                year=(v - 1) // 12,
-                month=((v - 1) % 12) + 1,
-                day=1
-            )
-            for v in line_x
-        ]
-
-        line_y = [
-            slope * v + intercept
-            for v in line_x
-        ]
-
-        fig.add_trace(
-            go.Scatter(
-                x=line_dates,
-                y=line_y,
-                mode="lines",
-                name="선형회귀 추세선",
-                line=dict(
-                    dash="dash",
-                    width=2
-                )
-            )
-        )
-
-        # 잔차 표시
-        fitted = [
-            slope * value + intercept
-            for value in x
-        ]
-
-        residual_x = []
-        residual_y = []
-
-        for date, actual, predicted in zip(
-            history["날짜"],
-            y,
-            fitted
-        ):
-
-            if date.year == selected_year:
-
-                residual_x.extend([
-                    date,
-                    date,
-                    None
-                ])
-
-                residual_y.extend([
-                    actual,
-                    predicted,
-                    None
-                ])
-
-        fig.add_trace(
-            go.Scatter(
-                x=residual_x,
-                y=residual_y,
-                mode="lines",
-                name="실제값과 회귀선의 차이",
-                line=dict(
-                    dash="dot",
-                    width=1
-                ),
-                hoverinfo="skip"
-            )
-        )
-
-        # 다음 달 예측값
-        fig.add_trace(
-            go.Scatter(
-                x=[next_date],
-                y=[prediction],
-                mode="markers",
-                name="다음 달 예측값",
-                marker=dict(
-                    size=17,
-                    symbol="star"
-                )
-            )
-        )
-
-else:
-
-    st.warning(
-        "예측에 필요한 월별 데이터가 부족합니다. "
-        "최소 2개월 이상의 자료가 필요합니다."
-    )
-
-
-# ==========================================
-# 8. 그래프 출력
-# ==========================================
-
-fig.update_layout(
+trend_fig.update_layout(
+    title=f"{selected_region} 월별 전환율 변화",
     template="plotly_white",
-    height=520,
+    height=430,
     xaxis_title="월",
-    yaxis_title="전월세 전환율(%)",
-    hovermode="x unified",
-    legend_title="그래프 항목"
+    yaxis_title="전월세 전환율(%)"
 )
 
-fig.update_yaxes(ticksuffix="%")
-
-fig.update_xaxes(
-    tickformat="%Y년 %m월"
+trend_fig.update_yaxes(
+    ticksuffix="%"
 )
 
 st.plotly_chart(
-    fig,
+    trend_fig,
     use_container_width=True
 )
 
 
-# ==========================================
-# 9. 예측 결과 출력
-# ==========================================
-
-c1, c2, c3 = st.columns(3)
-
-latest_value = selected.iloc[-1]["전환율"]
-
-c1.metric(
-    "선택 연도 데이터",
-    f"{len(selected)}개월"
-)
-
-c2.metric(
-    "최근 실제 전환율",
-    f"{latest_value:.2f}%"
-)
-
-if prediction is not None:
-
-    c3.metric(
-        "다음 달 예측 전환율",
-        f"{prediction:.2f}%",
-        delta=f"{prediction - latest_value:+.2f}%p"
-    )
-
-    st.success(
-        f"{next_date.year}년 {next_date.month}월 "
-        f"예측 전환율: {prediction:.2f}%"
-    )
-
-else:
-
-    c3.metric(
-        "예측 전환율",
-        "예측 불가"
-    )
-
-
-# ==========================================
-# 10. 데이터 표
-# ==========================================
-
-with st.expander("📋 월별 실제 데이터 확인"):
-
-    table = selected[
-        ["날짜", "전환율"]
-    ].copy()
-
-    table["날짜"] = table["날짜"].dt.strftime(
-        "%Y년 %m월"
-    )
-
-    table.columns = [
-        "월",
-        "전월세 전환율(%)"
-    ]
-
-    st.dataframe(
-        table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# ==========================================
-# 11. 선형회귀 알고리즘 설명
-# ==========================================
+# =====================================================
+# 11. 전월 대비 변화
+# =====================================================
 
 st.divider()
 
-st.subheader("💡 선형회귀 알고리즘 알아보기")
+st.subheader("🔄 전월 대비 전환율 변화")
+
+change_data = data[
+    data["지역단계"] == selected_level
+].copy()
+
+change_data = change_data[
+    ~change_data["지역명"].str.contains(
+        "전국|소계|합계",
+        na=False
+    )
+]
+
+change_data = change_data.sort_values(
+    ["지역", "날짜"]
+)
+
+change_data["전월 전환율"] = (
+    change_data.groupby("지역")["전환율"].shift(1)
+)
+
+change_data["전월 대비 변화"] = (
+    change_data["전환율"]
+    - change_data["전월 전환율"]
+)
+
+if selected_month == "연평균":
+
+    change_view = change_data[
+        change_data["연도"] == selected_year
+    ].groupby(
+        ["지역", "지역명"],
+        as_index=False
+    )["전월 대비 변화"].mean()
+
+else:
+
+    change_view = change_data[
+        (change_data["연도"] == selected_year)
+        & (change_data["월"] == month_number)
+    ][
+        ["지역", "지역명", "전월 대비 변화"]
+    ].copy()
+
+change_view = change_view.dropna()
+
+if not change_view.empty:
+
+    change_view = change_view.sort_values(
+        "전월 대비 변화",
+        ascending=False
+    )
+
+    increase, decrease = st.columns(2)
+
+    with increase:
+
+        st.markdown("### 📈 전환율 상승 지역")
+
+        st.dataframe(
+            change_view.head(5).rename(
+                columns={
+                    "지역명": "지역",
+                    "전월 대비 변화": "변화(%p)"
+                }
+            )[["지역", "변화(%p)"]],
+            use_container_width=True,
+            hide_index=True
+        )
+
+    with decrease:
+
+        st.markdown("### 📉 전환율 하락 지역")
+
+        st.dataframe(
+            change_view.tail(5).sort_values(
+                "전월 대비 변화"
+            ).rename(
+                columns={
+                    "지역명": "지역",
+                    "전월 대비 변화": "변화(%p)"
+                }
+            )[["지역", "변화(%p)"]],
+            use_container_width=True,
+            hide_index=True
+        )
+
+else:
+
+    st.info("전월 대비 비교할 데이터가 부족합니다.")
+
+
+# =====================================================
+# 12. 전체 데이터 표
+# =====================================================
+
+st.divider()
+
+st.subheader("📋 지역별 전월세 전환율 데이터")
+
+table_data = analysis_data.copy()
+
+table_data = table_data.sort_values(
+    "전환율",
+    ascending=False
+)
+
+table_data["전환율"] = table_data[
+    "전환율"
+].round(2)
+
+table_data = table_data.rename(
+    columns={
+        "지역명": "지역",
+        "전환율": "전월세 전환율(%)"
+    }
+)
+
+st.dataframe(
+    table_data[
+        ["지역", "전월세 전환율(%)"]
+    ],
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# =====================================================
+# 13. 데이터 다운로드
+# =====================================================
+
+csv_download = table_data[
+    ["지역", "전월세 전환율(%)"]
+].to_csv(
+    index=False,
+    encoding="utf-8-sig"
+)
+
+st.download_button(
+    label="📥 분석 결과 CSV 다운로드",
+    data=csv_download,
+    file_name="전월세_전환율_분석결과.csv",
+    mime="text/csv"
+)
+
+
+# =====================================================
+# 14. 데이터 분석 해설
+# =====================================================
+
+st.divider()
+
+st.subheader("💡 전월세 전환율 분석이란?")
 
 st.markdown("""
-### ① 선형회귀란?
+전월세 전환율은 전세 보증금을 월세로 전환할 때
+적용되는 비율을 의미합니다.
 
-선형회귀(Linear Regression)는 과거 데이터의 관계를
-가장 잘 설명하는 직선을 찾아 미래의 값을 예측하는 알고리즘입니다.
+이 대시보드에서는 다음과 같은 분석을 수행합니다.
 
-### ② 어떻게 작동할까요?
+**① 지역별 분석**
 
-1. 과거 월별 전월세 전환율 데이터를 수집합니다.
-2. 각 월의 전환율을 그래프의 점으로 표시합니다.
-3. 실제 데이터와 가장 가까운 회귀 직선을 계산합니다.
-4. 직선을 다음 달까지 연장하여 전환율을 예측합니다.
+지역마다 전월세 전환율이 어떻게 다른지 비교합니다.
 
-### ③ 그래프 읽는 방법
+**② 순위 분석**
 
-- 실선과 원형 점: 실제 전월세 전환율
-- 점선: 선형회귀 알고리즘이 계산한 추세선
-- 세로 점선: 실제값과 회귀선의 차이인 잔차
-- 별 모양 점: 다음 달 예측 전환율
+전환율이 높은 지역과 낮은 지역을 확인합니다.
 
-### ④ 선형회귀의 특징
+**③ 시계열 분석**
 
-선형회귀는 데이터의 전체적인 증가 또는 감소 추세를
-직선으로 표현한다는 장점이 있습니다.
+시간의 흐름에 따라 전환율이 어떻게 변하는지 확인합니다.
 
-다만 금리, 정부 정책, 부동산 시장의 급격한 변화 등은
-자동으로 반영하지 못합니다.
+**④ 변화량 분석**
 
-따라서 예측 결과는 실제 미래의 전환율이 아니라
-과거 데이터에 기반한 추정값입니다.
+전월과 비교하여 전환율이 상승했는지 하락했는지 확인합니다.
+
+**⑤ 데이터 기반 의사결정**
+
+지역별 전환율의 차이를 확인하여 부동산 시장의
+지역별 특징을 이해할 수 있습니다.
+
+※ 전환율은 시장 상황, 금리, 정책 등에 따라 변할 수 있으며,
+전환율만으로 특정 지역의 주거비 부담이나 투자 수익성을
+단정할 수는 없습니다.
 """)
 
 st.caption(
-    f"분석 파일: {CSV_FILE.name}"
+    f"데이터 파일: {CSV_FILE.name} | "
+    f"분석 연도: {selected_year}년"
 )
