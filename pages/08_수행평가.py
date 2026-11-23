@@ -60,7 +60,6 @@ def load_data(file_path):
     raw = None
 
     for encoding in ["cp949", "euc-kr", "utf-8-sig", "utf-8"]:
-
         try:
             raw = pd.read_csv(
                 file_path,
@@ -68,7 +67,6 @@ def load_data(file_path):
                 dtype=str
             )
             break
-
         except UnicodeDecodeError:
             continue
 
@@ -84,7 +82,6 @@ def load_data(file_path):
     ]
 
     for col in region_columns:
-
         if col not in raw.columns:
             raise ValueError(
                 f"CSV에 {col} 열이 없습니다."
@@ -93,7 +90,6 @@ def load_data(file_path):
     month_columns = []
 
     for col in raw.columns:
-
         match = re.fullmatch(
             r"(\d{4})년\s*(\d{1,2})월",
             str(col).strip()
@@ -120,7 +116,6 @@ def load_data(file_path):
                 and value.lower() != "nan"
                 and value != "-"
             ):
-
                 if not parts or parts[-1] != value:
                     parts.append(value)
 
@@ -171,11 +166,9 @@ def load_data(file_path):
 
 
 try:
-
     data = load_data(str(CSV_FILE))
 
 except Exception as e:
-
     st.error("데이터 처리 중 오류가 발생했습니다.")
     st.exception(e)
     st.stop()
@@ -470,7 +463,6 @@ if selected_regions:
     )
 
 else:
-
     st.warning("비교할 지역을 선택해 주세요.")
 
 
@@ -529,6 +521,7 @@ st.plotly_chart(
 
 # =====================================================
 # 11. 전월 대비 변화
+#     중복 열 이름 오류 수정 완료
 # =====================================================
 
 st.divider()
@@ -550,15 +543,18 @@ change_data = change_data.sort_values(
     ["지역", "날짜"]
 )
 
+# 같은 지역의 이전 달 전환율 계산
 change_data["전월 전환율"] = (
     change_data.groupby("지역")["전환율"].shift(1)
 )
 
+# 전월 대비 변화량 계산
 change_data["전월 대비 변화"] = (
     change_data["전환율"]
     - change_data["전월 전환율"]
 )
 
+# 선택한 연도와 월에 해당하는 자료 추출
 if selected_month == "연평균":
 
     change_view = change_data[
@@ -577,7 +573,19 @@ else:
         ["지역", "지역명", "전월 대비 변화"]
     ].copy()
 
-change_view = change_view.dropna()
+# 비교할 수 없는 값 제거
+change_view = change_view.dropna(
+    subset=["전월 대비 변화"]
+)
+
+change_view["전월 대비 변화"] = pd.to_numeric(
+    change_view["전월 대비 변화"],
+    errors="coerce"
+)
+
+change_view = change_view.dropna(
+    subset=["전월 대비 변화"]
+)
 
 if not change_view.empty:
 
@@ -588,41 +596,62 @@ if not change_view.empty:
 
     increase, decrease = st.columns(2)
 
+    # 전환율 상승 지역
     with increase:
 
         st.markdown("### 📈 전환율 상승 지역")
 
+        increase_table = change_view.head(5)[
+            ["지역명", "전월 대비 변화"]
+        ].copy()
+
+        increase_table.columns = [
+            "지역",
+            "전월 대비 변화(%p)"
+        ]
+
+        increase_table["전월 대비 변화(%p)"] = (
+            increase_table["전월 대비 변화(%p)"].round(2)
+        )
+
         st.dataframe(
-            change_view.head(5).rename(
-                columns={
-                    "지역명": "지역",
-                    "전월 대비 변화": "변화(%p)"
-                }
-            )[["지역", "변화(%p)"]],
+            increase_table,
             use_container_width=True,
             hide_index=True
         )
 
+    # 전환율 하락 지역
     with decrease:
 
         st.markdown("### 📉 전환율 하락 지역")
 
+        decrease_table = change_view.tail(5).sort_values(
+            "전월 대비 변화",
+            ascending=True
+        )[
+            ["지역명", "전월 대비 변화"]
+        ].copy()
+
+        decrease_table.columns = [
+            "지역",
+            "전월 대비 변화(%p)"
+        ]
+
+        decrease_table["전월 대비 변화(%p)"] = (
+            decrease_table["전월 대비 변화(%p)"].round(2)
+        )
+
         st.dataframe(
-            change_view.tail(5).sort_values(
-                "전월 대비 변화"
-            ).rename(
-                columns={
-                    "지역명": "지역",
-                    "전월 대비 변화": "변화(%p)"
-                }
-            )[["지역", "변화(%p)"]],
+            decrease_table,
             use_container_width=True,
             hide_index=True
         )
 
 else:
 
-    st.info("전월 대비 비교할 데이터가 부족합니다.")
+    st.info(
+        "선택한 조건에서 전월 대비 비교할 수 있는 데이터가 없습니다."
+    )
 
 
 # =====================================================
